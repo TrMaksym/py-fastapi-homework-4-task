@@ -1,4 +1,7 @@
-from pydantic import BaseModel, EmailStr, field_validator
+from datetime import date
+from typing import Optional
+
+from pydantic import BaseModel, EmailStr, field_validator, constr
 
 from database import accounts_validators
 
@@ -69,3 +72,45 @@ class TokenRefreshRequestSchema(BaseModel):
 class TokenRefreshResponseSchema(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+class ProfileBase(BaseModel):
+    first_name: constr(min_length=1)
+    last_name: constr(min_length=1)
+    gender: Optional[str]
+    birth_date: Optional[date]
+    biography: Optional[str]
+
+class ProfileCreate(ProfileBase):
+    avatar: Optional[bytes]
+
+class Profile(ProfileBase):
+    id: int
+    user_id: int
+    avatar_url: Optional[str]
+
+    class Config:
+        orm_mode = True
+
+
+class RegisterData(BaseModel):
+    email: EmailStr
+    password: str
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+class PasswordResetConfirm(BaseModel):
+    token: str
+    new_password: str
+
+class UserRead(BaseModel):
+    id: int
+    email: EmailStr
+    is_active: bool
+    created_at: date
+    updated_at: date
+    group_id: int
+
+    class Config:
+        orm_mode = True

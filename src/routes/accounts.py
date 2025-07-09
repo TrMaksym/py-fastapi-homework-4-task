@@ -648,7 +648,7 @@ async def get_user_by_email(db: AsyncSession, email: str):
     user = result.scalars().first()
     return user
 
-@router.post("/forgot/password/")
+@router.post("/password-reset/request")
 async def forgot_password(email: str, db: AsyncSession = Depends(get_db)):
     user = await get_user_by_email(db, email)
     if not user:
@@ -674,7 +674,7 @@ async def get_user_by_reset_token(db: AsyncSession, token: str):
     return user
 
 
-@router.post("/reset_password/")
+@router.post("/password-reset/confirm")
 async def reset_password(token: str, new_password: str, db: AsyncSession = Depends(get_db)):
     user = await get_user_by_reset_token(db, token)
     if not user:
@@ -707,9 +707,18 @@ async def get_current_user(authorization: Annotated[str | None, Header()] = None
     token = authorization[len("Bearer "):]
     return fake_decode_token(token)
 
-@router.post("users/me/avatar")
+async def update_password(user_id: int, new_password: str, db: AsyncSession):
+    result = await db.execute(select(UserModel).where(UserModel.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise Exception("User not found")
+
+    user.hashed_password = hash_password(new_password)
+    await db.commit()
+
+@router.post("/users/me/avatar")
 async def upload_avatar(file: UploadFile = File(...),
-                        db: Session = Depends(get_db),
+                        db: AsyncSession = Depends(get_db),
                         current_user: UserRead = Depends(get_current_user)):
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Invalid file type")
@@ -722,9 +731,13 @@ async def upload_avatar(file: UploadFile = File(...),
     with open(file_path, "wb") as f:
         f.write(contents)
 
-    user = db.query(UserModel).filter(UserModel.id == current_user.id).first()
+    result = await db.execute(select(UserModel).where(UserModel.id == current_user.id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
     user.avatar_url = f"/static/avatars/{filename}"
-    db.commit()
+    await db.commit()
 
     return {"detail": "Avatar uploaded successfully", "avatar_url": user.avatar_url}
 

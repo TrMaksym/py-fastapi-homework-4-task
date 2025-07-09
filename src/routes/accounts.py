@@ -3,7 +3,6 @@ import secrets
 import uuid
 from datetime import datetime, timezone, timedelta, date
 from typing import cast, Annotated
-import smtplib
 from email.mime.text import MIMEText
 
 import aiosmtplib
@@ -40,7 +39,7 @@ from schemas import (
     TokenRefreshRequestSchema,
     TokenRefreshResponseSchema
 )
-from schemas.accounts import RegisterData, UserRead
+from schemas.accounts import  UserRead
 from security.interfaces import JWTAuthManagerInterface
 from security.passwords import hash_password
 
@@ -621,7 +620,7 @@ async def send_email(to_email: str, subject: str, body: str):
     except Exception as e:
         print(f"Error sending email: {e}")
 
-async def register(data: RegisterData):
+async def register(data: UserRegistrationRequestSchema):
     user_id = 1234
     token = local_create_token({"user_id": user_id, "action": "activate"}, expires_minutes=60*24)
     activation_link = f"https://example.com/activate/{user_id}/{token}"
@@ -742,41 +741,41 @@ async def upload_avatar(file: UploadFile = File(...),
     return {"detail": "Avatar uploaded successfully", "avatar_url": user.avatar_url}
 
 
-# @router.post("/users/me/avatar_s3")
-# async def upload_avatar_s3(file: UploadFile = File(...),
-#                            db: Session = Depends(get_db),
-#                            current_user: UserRead = Depends(get_current_user)):
-#     if not file.content_type.startswith("image/"):
-#         raise HTTPException(status_code=400, detail="File is not an image")
-#
-#     filename = f"user_{current_user.id}.jpg"
-#     contents = await file.read()
-#
-#     async with aiboto3.client('s3') as s3:
-#         await s3.put_object(Bucket=BUCKET_NAME, Key=filename, Body=contents, ContentType=file.content_type)
-#
-#     # avatar_url = f"https://{BUCKET_NAME}.s3.amazonaws.com/{filename}"
-#
-#     user = db.query(UserModel).filter(UserModel.id == current_user.id).first()
-#     user.avatar_url = avatar_url
-#     db.commit()
-#
-#     return {"detail": "Avatar uploaded successfully", "avatar_url": avatar_url}
+@router.post("/users/me/avatar_s3")
+async def upload_avatar_s3(file: UploadFile = File(...),
+                           db: Session = Depends(get_db),
+                           current_user: UserRead = Depends(get_current_user)):
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File is not an image")
 
-# @router.get("/users/me/avatar")
-# async def get_my_avatar_url(
-#     db: AsyncSession = Depends(get_db),
-#     current_user: UserRead = Depends(get_current_user)
-# ):
-#     result = await db.execute(select(User).where(User.id == current_user.id))
-#     user = result.scalar_one_or_none()
-#     if not user or not user.avatar_url:
-#         raise HTTPException(status_code=404, detail="Аватар не встановлено")
-#
-#     filename = user.avatar_url.split("/")[-1]  # if user.avatar_url stores the full path
-#     presigned_url = s3.generate_presigned_url(
-#         'get_object',
-#         Params={'Bucket': BUCKET_NAME, 'Key': filename},
-#         ExpiresIn=3600  # 1h
-#     )
-#     return {"avatar_url": presigned_url}
+    filename = f"user_{current_user.id}.jpg"
+    contents = await file.read()
+
+    async with aiboto3.client('s3') as s3:
+        await s3.put_object(Bucket=BUCKET_NAME, Key=filename, Body=contents, ContentType=file.content_type)
+
+    avatar_url = f"https://{BUCKET_NAME}.s3.amazonaws.com/{filename}"
+
+    user = db.query(UserModel).filter(UserModel.id == current_user.id).first()
+    user.avatar_url = avatar_url
+    db.commit()
+
+    return {"detail": "Avatar uploaded successfully", "avatar_url": avatar_url}
+
+@router.get("/users/me/avatar")
+async def get_my_avatar_url(
+    db: AsyncSession = Depends(get_db),
+    current_user: UserRead = Depends(get_current_user)
+):
+    result = await db.execute(select(UserModel).where(UserModel.id == current_user.id))
+    user = result.scalar_one_or_none()
+    if not user or not user.avatar_url:
+        raise HTTPException(status_code=404, detail="Аватар не встановлено")
+
+    filename = user.avatar_url.split("/")[-1]
+    presigned_url = s3.generate_presigned_url(
+        'get_object',
+        Params={'Bucket': BUCKET_NAME, 'Key': filename},
+        ExpiresIn=3600  # 1h
+    )
+    return {"avatar_url": presigned_url}

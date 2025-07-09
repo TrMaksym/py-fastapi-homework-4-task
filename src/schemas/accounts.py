@@ -81,8 +81,6 @@ class ProfileBase(BaseModel):
     birth_date: Optional[date]
     biography: Optional[str]
 
-class ProfileCreate(ProfileBase):
-    avatar: Optional[bytes]
 
 class Profile(ProfileBase):
     id: int
@@ -91,20 +89,6 @@ class Profile(ProfileBase):
 
     class Config:
         orm_mode = True
-
-
-class RegisterData(BaseModel):
-    email: EmailStr
-    password: str
-
-
-class PasswordResetRequest(BaseModel):
-    email: EmailStr
-
-
-class PasswordResetConfirm(BaseModel):
-    token: str
-    new_password: str
 
 
 class UserRead(BaseModel):

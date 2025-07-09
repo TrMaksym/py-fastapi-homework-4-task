@@ -44,6 +44,7 @@ from security.interfaces import JWTAuthManagerInterface
 from security.passwords import hash_password
 
 router = APIRouter()
+bucket_name = os.getenv("MINIO_STORAGE", "default-bucket-name")
 
 
 @router.post(
@@ -742,9 +743,11 @@ async def upload_avatar(file: UploadFile = File(...),
 
 
 @router.post("/users/me/avatar_s3")
-async def upload_avatar_s3(file: UploadFile = File(...),
-                           db: Session = Depends(get_db),
-                           current_user: UserRead = Depends(get_current_user)):
+async def upload_avatar_s3(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: UserRead = Depends(get_current_user),
+):
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File is not an image")
 
@@ -752,20 +755,30 @@ async def upload_avatar_s3(file: UploadFile = File(...),
     contents = await file.read()
 
     async with aiboto3.client('s3') as s3:
-        await s3.put_object(Bucket=BUCKET_NAME, Key=filename, Body=contents, ContentType=file.content_type)
+        await s3.put_object(
+            Bucket=bucket_name,
+            Key=filename,
+            Body=contents,
+            ContentType=file.content_type
+        )
 
-    avatar_url = f"https://{BUCKET_NAME}.s3.amazonaws.com/{filename}"
+    avatar_url = f"https://{bucket_name}.s3.amazonaws.com/{filename}"
 
-    user = db.query(UserModel).filter(UserModel.id == current_user.id).first()
+    result = await db.execute(select(UserModel).where(UserModel.id == current_user.id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
     user.avatar_url = avatar_url
-    db.commit()
+    await db.commit()
 
     return {"detail": "Avatar uploaded successfully", "avatar_url": avatar_url}
+
 
 @router.get("/users/me/avatar")
 async def get_my_avatar_url(
     db: AsyncSession = Depends(get_db),
-    current_user: UserRead = Depends(get_current_user)
+    current_user: UserRead = Depends(get_current_user),
 ):
     result = await db.execute(select(UserModel).where(UserModel.id == current_user.id))
     user = result.scalar_one_or_none()
@@ -773,9 +786,12 @@ async def get_my_avatar_url(
         raise HTTPException(status_code=404, detail="Аватар не встановлено")
 
     filename = user.avatar_url.split("/")[-1]
-    presigned_url = s3.generate_presigned_url(
-        'get_object',
-        Params={'Bucket': BUCKET_NAME, 'Key': filename},
-        ExpiresIn=3600  # 1h
-    )
+
+    async with aiboto3.client('s3') as s3:
+        presigned_url = await s3.generate_presigned_url(
+            ClientMethod='get_object',
+            Params={'Bucket': bucket_name, 'Key': filename},
+            ExpiresIn=3600
+        )
+
     return {"avatar_url": presigned_url}
